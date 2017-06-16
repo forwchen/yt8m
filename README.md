@@ -15,3 +15,22 @@ There are three branches of code from Xi Wang:
 ### 3. xiw
 
   This branch contains code for normal models, such as LSTM, GRU, DBoF, etc.
+
+The models in these branches are all trained with default arguments in `video_level_models.py` or 
+`frame_level_models.py`. For example, the `lstm_layers` are all 2 for RNN models as defined in `frame_level_models.py`.
+By default, the models are trained with only training data.
+The learning rates for GRU, LSTM, LayerNorm LSTM models are 0.001.
+The learning rates for DBoF and MoE models are 0.1
+
+
+Particularly, this branch `xiw` is used to train the following models:
+
+|Model|Setting|
+| --- | --- |
+|DBoF |Default|
+|MoE |Default|
+|LSTM |Default|
+|GRU|Default|
+|LayerNorm LSTM|dropout = 0.75|
+|LayerNorm LSTM|dropout = 0.5|
+|LayerNorm LSTM|dropout = 0.5, use train+validate data|
