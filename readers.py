@@ -141,7 +141,7 @@ class YT8MFrameFeatureReader(BaseReader):
                num_classes=4716,
                feature_sizes=[1024],
                feature_names=["inc3"],
-               max_frames=300):
+               max_frames=295):
     """Construct a YT8MFrameFeatureReader.
 
     Args:
@@ -187,8 +187,15 @@ class YT8MFrameFeatureReader(BaseReader):
     feature_matrix = utils.Dequantize(decoded_features,
                                       max_quantized_value,
                                       min_quantized_value)
-    feature_matrix = resize_axis(feature_matrix, 0, max_frames)
-    return feature_matrix, num_frames
+    feature_matrix = resize_axis(feature_matrix, 0, max_frames + 1)
+ 
+    indices_l = tf.range(max_frames)
+    indices_r = tf.range(1, max_frames + 1)
+    feature_matrix_l = tf.gather(feature_matrix, indices_l)
+    feature_matrix_r = tf.gather(feature_matrix, indices_r)
+
+    feature_matrix_diff = feature_matrix_r - feature_matrix_l
+    return feature_matrix_diff, num_frames
 
   def prepare_reader(self,
                      filename_queue,
