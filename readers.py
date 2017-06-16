@@ -16,13 +16,22 @@
 
 import tensorflow as tf
 import utils
-
+import pickle
 from tensorflow import logging
+from tensorflow import flags
+FLAGS = flags.FLAGS
+flags.DEFINE_bool(
+    "super_label", False,
+    "use_super_label.")
+
 def resize_axis(tensor, axis, new_size, fill_value=0):
   """Truncates or pads a tensor to new_size on on a given axis.
 
-  Truncate or extend tensor such that tensor.shape[axis] == new_size. If the
-  size increases, the padding will be performed at the end, using fill_value.
+  Truncate or extend tensor such that tensor.shape[axis] == new_size. We modified 
+  this code for mirror padding the frame level data. For examples: 
+  Origin: ABCD
+  padding(1): ABCDDCBA
+  padding(2): ABCDDCBAABCDDCBA
 
   Args:
     tensor: The tensor to be resized.
@@ -39,21 +48,46 @@ def resize_axis(tensor, axis, new_size, fill_value=0):
   shape = tf.unstack(tf.shape(tensor))
 
   pad_shape = shape[:]
-  pad_shape[axis] = tf.maximum(0, new_size - shape[axis])
-
+  
+  inv_shape = shape
+  remain_shape = shape
   shape[axis] = tf.minimum(shape[axis], new_size)
   shape = tf.stack(shape)
 
+  inv_shape[axis] = tf.minimum(tf.maximum(0, new_size - shape[axis]), shape[axis]) # get the shape for mirror padding(1)
+  inv_shape = tf.stack(inv_shape)
+
+  remain_shape[axis] = tf.minimum(tf.maximum(0, new_size - inv_shape[axis] - shape[axis]), 2*shape[axis]) # get the shape for mirror padding(2)
+  remain_shape = tf.stack(remain_shape)
+
+  sliced_tensor = tf.slice(tensor, tf.zeros_like(shape), shape)
+  inv_sliced_tensor = tf.slice(sliced_tensor[::-1,:], tf.zeros_like(inv_shape), inv_shape)
+
   resized = tf.concat([
-      tf.slice(tensor, tf.zeros_like(shape), shape),
-      tf.fill(tf.stack(pad_shape), tf.cast(fill_value, tensor.dtype))
-  ], axis)
+      sliced_tensor,
+      inv_sliced_tensor
+  ], axis) # ABCD TO ABCDDCBA
+
+  remain_tensor = tf.slice(resized[::-1,:], tf.zeros_like(remain_shape), remain_shape)
+  resized = tf.concat([
+      resized, 
+      remain_tensor
+  ], axis) # ABCDDCBA TO ABCDDCBAABCDDCBA
+
+  resized_shape = tf.unstack(tf.shape(resized))
+  pad_shape[axis] = tf.maximum(0, new_size - resized_shape[axis])
+
+  resized = tf.concat([
+    resized,
+    tf.fill(tf.stack(pad_shape), tf.cast(fill_value, tensor.dtype))
+  ], axis) # pad the remaining by fill_value
 
   # Update shape.
   new_shape = tensor.get_shape().as_list()  # A copy is being made.
   new_shape[axis] = new_size
   resized.set_shape(new_shape)
   return resized
+
 
 class BaseReader(object):
   """Inherit from this class when implementing new readers."""
@@ -87,7 +121,10 @@ class YT8MAggregatedFeatureReader(BaseReader):
     "length of feature_names (={}) != length of feature_sizes (={})".format( \
     len(feature_names), len(feature_sizes))
 
-    self.num_classes = num_classes
+    if FLAGS.super_label:
+      self.num_classes = 25
+    else:
+      self.num_classes = num_classes
     self.feature_sizes = feature_sizes
     self.feature_names = feature_names
 
@@ -121,10 +158,21 @@ class YT8MAggregatedFeatureReader(BaseReader):
           [self.feature_sizes[feature_index]], tf.float32)
 
     features = tf.parse_example(serialized_examples, features=feature_map)
-    labels = tf.sparse_to_indicator(features["labels"], self.num_classes)
-    labels.set_shape([None, self.num_classes])
+    labels = tf.sparse_to_indicator(features["labels"], 4716)
+    labels.set_shape([None, 4716])
     concatenated_features = tf.concat([
         features[feature_name] for feature_name in self.feature_names], 1)
+
+    if FLAGS.super_label:
+      f = open('encoding_matrix.pkl', 'rb')
+      encoding_matrix = pickle.load(f)
+      f.close()
+      encoding_matrix = tf.convert_to_tensor(encoding_matrix)
+      labels = tf.cast(labels, tf.float32)
+      encoding_matrix = tf.cast(encoding_matrix, tf.float32)
+      labels = tf.matmul(labels, encoding_matrix)
+      labels = tf.cast(labels, tf.bool)
+
 
     return features["video_id"], concatenated_features, labels, tf.ones([tf.shape(serialized_examples)[0]])
 

@@ -18,7 +18,7 @@ import math
 import models
 import tensorflow as tf
 import utils
-
+import pickle
 from tensorflow import flags
 import tensorflow.contrib.slim as slim
 
@@ -27,35 +27,46 @@ flags.DEFINE_integer(
     "moe_num_mixtures", 2,
     "The number of mixtures (excluding the dummy 'expert') used for MoeModel.")
 
-class LogisticModel(models.BaseModel):
-  """Logistic model with L2 regularization."""
+flags.DEFINE_integer(
+    "moe_num_hiddens", 512,
+    "The number of hidden neural used for MoeModel.")
 
-  def create_model(self, model_input, vocab_size, l2_penalty=1e-8, **unused_params):
-    """Creates a logistic model.
+flags.DEFINE_integer(
+    "num_maxout", 4,
+    "The number of maxout neural used for maxoutMoeModel.")
 
-    Args:
-      model_input: 'batch' x 'num_features' matrix of input features.
-      vocab_size: The number of classes in the dataset.
+flags.DEFINE_integer(
+    "num_layers", 4,
+    "The number of layers used for maxoutMoeModel.")
 
-    Returns:
-      A dictionary with a tensor containing the probability predictions of the
-      model in the 'predictions' key. The dimensions of the tensor are
-      batch_size x num_classes."""
-    output = slim.fully_connected(
-        model_input, vocab_size, activation_fn=tf.nn.sigmoid,
-        weights_regularizer=slim.l2_regularizer(l2_penalty))
-    return {"predictions": output}
+flags.DEFINE_float(
+    "dropout_rate", 0.0,
+    "Dropout rate.")
 
-class MoeModel(models.BaseModel):
-  """A softmax over a mixture of logistic models (with L2 regularization)."""
+flags.DEFINE_bool(
+    "testing", False,
+    "Bool for drop out.")
+
+class catfus_maxout_MoeModel(models.BaseModel):
+  """A multi-model fusion with maxout activation function over a mixture of logistic models (with L2 regularization)."""
 
   def create_model(self,
                    model_input,
                    vocab_size,
                    num_mixtures=None,
+                   num_hiddens=None,
+                   num_maxout = None,
                    l2_penalty=1e-8,
                    **unused_params):
     """Creates a Mixture of (Logistic) Experts model.
+
+     visual features ---------- visual hidden----
+                     -                           -
+                      -                           -
+                       -------- multi-model hidden --- (concatenate) ---- hidden features --- moe
+                      -                           -
+                     -                           -
+      audio_features ---------- audio hidden-----
 
      The model consists of a per-class softmax distribution over a
      configurable number of logistic classifiers. One of the classifiers in the
@@ -74,6 +85,105 @@ class MoeModel(models.BaseModel):
       batch_size x num_classes.
     """
     num_mixtures = num_mixtures or FLAGS.moe_num_mixtures
+    num_hiddens = num_hiddens or FLAGS.moe_num_hiddens
+    num_maxout = num_maxout or FLAGS.num_maxout
+
+    video_hidden = slim.fully_connected(
+      model_input[:,:1024],
+      num_hiddens,
+      weights_regularizer=slim.l2_regularizer(l2_penalty),
+      scope='video_hidden'
+    )
+    audio_hidden = slim.fully_connected(
+      model_input[:,1024:],
+      num_hiddens,
+      weights_regularizer=slim.l2_regularizer(l2_penalty),
+      scope='audio_hidden'
+    )
+
+    video_audio_hidden = slim.fully_connected(
+      model_input,
+      num_hiddens,
+      weights_regularizer=slim.l2_regularizer(l2_penalty),
+      scope='video_audio_hidden'
+    )
+
+    hidden_activate_cat = tf.concat([video_hidden,audio_hidden,video_audio_hidden], 1)
+
+
+    hidden_activate = slim.fully_connected(
+      hidden_activate_cat,
+      num_hiddens * num_mixtures,
+      weights_regularizer=slim.l2_regularizer(l2_penalty),
+      scope='hidden_one'
+    )
+
+    hidden_activate_maxout = tf.reduce_max(tf.reshape(hidden_activate, [-1, num_hiddens * num_mixtures//num_maxout, num_maxout]), 2)
+
+
+    gate_activations = slim.fully_connected(
+        hidden_activate_cat,
+        vocab_size * (num_mixtures + 1),
+        activation_fn=None,
+        biases_initializer=None,
+        weights_regularizer=slim.l2_regularizer(l2_penalty),
+        scope="gates")
+    expert_activations = slim.fully_connected(
+        hidden_activate_maxout,
+        vocab_size * num_mixtures,
+        activation_fn=None,
+        weights_regularizer=slim.l2_regularizer(l2_penalty),
+        scope="experts")
+
+    gating_distribution = tf.nn.softmax(tf.reshape(
+        gate_activations,
+        [-1, num_mixtures + 1]))  # (Batch * #Labels) x (num_mixtures + 1)
+    expert_distribution = tf.nn.sigmoid(tf.reshape(
+        expert_activations,
+        [-1, num_mixtures]))  # (Batch * #Labels) x num_mixtures
+
+    final_probabilities_by_class_and_batch = tf.reduce_sum(
+        gating_distribution[:, :num_mixtures] * expert_distribution, 1)
+    final_probabilities = tf.reshape(final_probabilities_by_class_and_batch,
+                                     [-1, vocab_size])
+    return {"predictions": final_probabilities}
+
+class maxout_MoeModel(models.BaseModel):
+  """A 4-channel of hidden layers with maxout activation function over a mixture of logistic models (with L2 regularization).
+                     
+                     -----linear_layers(1) + maxout activation--------------
+                     -                                                     -
+                     -----linear_layers(2) + maxout activation--------------
+                     -                       -                             -
+  input_features -----                       -                             -------moe-----output
+                     -                       -                             -
+                     -----linear_layers(num_maxout-1) + maxout activation---
+                     -                                                     - 
+                     -----linear_layers(num_maxout) + maxout activation-----
+                  
+  """
+
+  def create_model(self,
+                   model_input,
+                   vocab_size,
+                   num_mixtures=None,
+                   num_hiddens=None,
+                   num_maxout = None,
+                   l2_penalty=1e-8,
+                   **unused_params):
+
+    num_mixtures = num_mixtures or FLAGS.moe_num_mixtures
+    num_hiddens = num_hiddens or FLAGS.moe_num_hiddens
+    num_maxout = num_maxout or FLAGS.num_maxout
+
+    hidden_activate = slim.fully_connected(
+      model_input,
+      num_hiddens * num_mixtures,
+      weights_regularizer=slim.l2_regularizer(l2_penalty),
+      scope='hidden_one'
+    )
+
+    hidden_activate_maxout = tf.reduce_max(tf.reshape(hidden_activate, [-1, num_hiddens * num_mixtures//num_maxout, num_maxout]), 2)
 
     gate_activations = slim.fully_connected(
         model_input,
@@ -83,7 +193,100 @@ class MoeModel(models.BaseModel):
         weights_regularizer=slim.l2_regularizer(l2_penalty),
         scope="gates")
     expert_activations = slim.fully_connected(
+        hidden_activate_maxout,
+        vocab_size * num_mixtures,
+        activation_fn=None,
+        weights_regularizer=slim.l2_regularizer(l2_penalty),
+        scope="experts")
+
+    gating_distribution = tf.nn.softmax(tf.reshape(
+        gate_activations,
+        [-1, num_mixtures + 1]))  # (Batch * #Labels) x (num_mixtures + 1)
+    expert_distribution = tf.nn.sigmoid(tf.reshape(
+        expert_activations,
+        [-1, num_mixtures]))  # (Batch * #Labels) x num_mixtures
+
+    final_probabilities_by_class_and_batch = tf.reduce_sum(
+        gating_distribution[:, :num_mixtures] * expert_distribution, 1)
+    final_probabilities = tf.reshape(final_probabilities_by_class_and_batch,
+                                     [-1, vocab_size])
+    return {"predictions": final_probabilities}
+
+class linear_res_mix_act_MoeModel(models.BaseModel):
+  """A softmax over a mixture of logistic models (with L2 regularization).
+
+                   
+                     -----linear_layers(1) + sigmoid activation-------------
+                     -                                                     -
+                     -----linear_layers(2) + relu activation----------------
+                     -                                                     -
+  input_features -----                                                     -------moe-----output
+                     -                                                     -
+                     -----linear_layers(3) + elu activation-----------------
+                     -                                                     - 
+                     -----linear_layers(4) + tanh activation----------------
+
+  """
+  def create_model(self,
+                   model_input,
+                   vocab_size,
+                   num_mixtures=None,
+                   num_hiddens=None,
+                   num_maxout = None,
+                   l2_penalty=1e-8,
+                   **unused_params):
+
+    num_mixtures = num_mixtures or FLAGS.moe_num_mixtures
+    num_hiddens = num_hiddens or FLAGS.moe_num_hiddens
+    num_maxout = num_maxout or FLAGS.num_maxout
+
+    hidden_sigmoid = slim.fully_connected(
+      model_input,
+      num_hiddens,
+      activation_fn=tf.nn.sigmoid,
+      weights_regularizer=slim.l2_regularizer(l2_penalty),
+      scope='hidden_sigmoid'
+    )
+    hidden_relu = slim.fully_connected(
+      model_input,
+      num_hiddens,
+      activation_fn=tf.nn.relu,
+      weights_regularizer=slim.l2_regularizer(l2_penalty),
+      scope='hidden_relu'
+    )
+    hidden_elu = slim.fully_connected(
+      model_input,
+      num_hiddens,
+      activation_fn=tf.nn.elu,
+      weights_regularizer=slim.l2_regularizer(l2_penalty),
+      scope='hidden_elu'
+    )
+    hidden_tanh = slim.fully_connected(
+      model_input,
+      num_hiddens,
+      activation_fn=tf.nn.tanh,
+      weights_regularizer=slim.l2_regularizer(l2_penalty),
+      scope='hidden_tanh'
+    )
+
+    linear_input = slim.fully_connected(
+      model_input,
+      num_hiddens,
+      activation_fn=None,
+      weights_regularizer=slim.l2_regularizer(l2_penalty),
+      scope='hidden_linear'
+    )
+
+
+    gate_activations = slim.fully_connected(
         model_input,
+        vocab_size * (num_mixtures + 1),
+        activation_fn=None,
+        biases_initializer=None,
+        weights_regularizer=slim.l2_regularizer(l2_penalty),
+        scope="gates")
+    expert_activations = slim.fully_connected(
+        tf.concat([hidden_sigmoid+0.25*linear_input, hidden_relu+0.25*linear_input, hidden_elu+0.25*linear_input, hidden_tanh+0.25*linear_input], 1),
         vocab_size * num_mixtures,
         activation_fn=None,
         weights_regularizer=slim.l2_regularizer(l2_penalty),
