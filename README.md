@@ -120,6 +120,7 @@ The software dependencies are:
 As shown in the following tables, to obtain the results, you first need to run the training scripts in corresponding folders to get predictions from all the model checkpoints.
 
 Table 1. Models from team Shaoxiang Chen. In branch sxc.
+If not otherwise stated, the models here are trained on both training and validation data.
 
 | Model| Prediction at checkpoints| Intra-model fusion weights |Inter-model fusion weights
 | ------ | ------ | ------ | ------ |
@@ -135,20 +136,25 @@ Table 1. Models from team Shaoxiang Chen. In branch sxc.
 |RNN with residual connection | 75k, 70k, 62k, 56k | 0.4, 0.3, 0.2, 0.1 | n/a |
 
 Table 2. Models from team Xi Wang. In branch xiw, diff(with Feature Transformation), filter(with Label Filter).
+If not otherwise stated, the models here are trained only on training data. For detailed settings, please refer to
+the corresponding branches.
 
 |Model |Prediction at checkpoints| Fusion weights|
 | ------ | ------ | ------ | 
-|LSTM with Layer Normalization & Dropout = 0.5| 286k, 240k, 222k, 203k, 144k| 0.8, 0.8, 0.8, 0.8, 1.0|
+|LSTM with Layer Normalization & Dropout = 0.5, trained on training+validation data| 286k, 240k, 222k, 203k, 144k| 0.8, 0.8, 0.8, 0.8, 1.0|
 |LSTM with Layer Normalization & Dropout = 0.75| 158k, 150k| 1.3, 0.6|
 |GRU| 98k, 80k, 61k| 1.6, 0.8, 0.8|
 |LSTM| 72k| 0.1|
-|GRU with Feature Transformation|108k, 80k, 61k| 0.6, 0.1, 0.1|
+|GRU with Feature Transformation, trained on training+validation data|108k, 80k, 61k| 0.6, 0.1, 0.1|
+|GRU with Feature Transformation| 108k | 0.3 |
+|GRU with Feature Transformation, learning rate = 0.0005| 124k | 0.3 |
 |MoE with Label Filter (3571 categories) |27k| 0.8|
 |MoE with Label Filter (2534 categories)| 27k| 0.8|
 |MoE| 23k| 0.7|
 |DBoF| 17k| 0.5|
 
 Table 3. Models from team Yongyi Tang. In branch yyt.
+The models are trained on both training and validation data except validate[0-2]*.tfrecord.
 
 |Model | Prediction at checkpoints|
 | ------ | ------ |
