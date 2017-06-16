@@ -119,7 +119,7 @@ The software dependencies are:
 ### 1. Train the models
 As shown in the following tables, to obtain the results, you first need to run the training scripts in corresponding folders to get predictions from all the model checkpoints.
 
-Table 1. Models from team Shaoxiang Chen. In folder yt8m-sxc.
+Table 1. Models from team Shaoxiang Chen. In branch sxc.
 
 | Model| Prediction at checkpoints| Intra-model fusion weights |Inter-model fusion weights
 | ------ | ------ | ------ | ------ |
@@ -134,7 +134,7 @@ Table 1. Models from team Shaoxiang Chen. In folder yt8m-sxc.
 |Bidirectional GRU| 53k, 45k, 35k| 0.5, 0.3, 0.2 |0.25|
 |RNN with residual connection | 75k, 70k, 62k, 56k | 0.4, 0.3, 0.2, 0.1 | n/a |
 
-Table 2. Models from team Xi Wang. In folder yt8m-xiw.
+Table 2. Models from team Xi Wang. In branch xiw, diff(with Feature Transformation), filter(with Label Filter).
 
 |Model |Prediction at checkpoints| Fusion weights|
 | ------ | ------ | ------ | 
@@ -148,7 +148,7 @@ Table 2. Models from team Xi Wang. In folder yt8m-xiw.
 |MoE| 23k| 0.7|
 |DBoF| 17k| 0.5|
 
-Table 3. Models from team Yongyi Tang. In folder yt8m-yyt.
+Table 3. Models from team Yongyi Tang. In branch yyt.
 
 |Model | Prediction at checkpoints|
 | ------ | ------ |
