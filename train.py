@@ -15,7 +15,9 @@
 
 import json
 import os
+import sys
 import time
+import pdb
 
 import eval_util
 import export_model
@@ -44,7 +46,8 @@ if __name__ == "__main__":
       "features (i.e. tensorflow.SequenceExample), then set --reader_type "
       "format. The (Sequence)Examples are expected to have 'rgb' byte array "
       "sequence feature as well as a 'labels' int64 context feature.")
-  flags.DEFINE_string("feature_names", "mean_rgb", "Name of the feature "
+  flags.DEFINE_string("train_list", "train.lst", "List of training files")
+  flags.DEFINE_string("feature_names", "rgb", "Name of the feature "
                       "to use for training.")
   flags.DEFINE_string("feature_sizes", "1024", "Length of the feature vectors.")
 
@@ -65,7 +68,7 @@ if __name__ == "__main__":
       " new model instance.")
 
   # Training flags.
-  flags.DEFINE_integer("batch_size", 1024,
+  flags.DEFINE_integer("batch_size", 128,
                        "How many examples to process per batch for training.")
   flags.DEFINE_string("label_loss", "CrossEntropyLoss",
                       "Which loss function to use for training the model.")
@@ -91,7 +94,7 @@ if __name__ == "__main__":
                        "is exported for batch prediction.")
 
   # Other flags.
-  flags.DEFINE_integer("num_readers", 8,
+  flags.DEFINE_integer("num_readers", 2,
                        "How many threads to use for reading input files.")
   flags.DEFINE_string("optimizer", "AdamOptimizer",
                       "What optimizer class to use.")
@@ -100,6 +103,9 @@ if __name__ == "__main__":
       "log_device_placement", False,
       "Whether to write the device on which every op will run into the "
       "logs on startup.")
+  flags.DEFINE_bool(
+      "use_grad_agg", False,
+      "Whether to use EXPERIMENTAL_ACCUMULATE_N for gradient computation.")
 
 def validate_class_name(flag_value, category, modules, expected_superclass):
   """Checks that the given string matches a class of the expected type.
@@ -154,7 +160,10 @@ def get_input_data_tensors(reader,
   """
   logging.info("Using batch size of " + str(batch_size) + " for training.")
   with tf.name_scope("train_input"):
-    files = gfile.Glob(data_pattern)
+    #files = gfile.Glob(data_pattern)
+    files_ = open(FLAGS.train_list, 'r').readlines()
+    files = [x.replace('\n', '') for x in files_]
+    #print files
     if not files:
       raise IOError("Unable to find training files. data_pattern='" +
                     data_pattern + "'.")
@@ -249,6 +258,7 @@ def build_graph(reader,
           num_epochs=num_epochs))
   tf.summary.histogram("model/input_raw", model_input_raw)
 
+  #model_input_raw.set_shape([batch_size*num_towers]+model_input_raw.get_shape().as_list()[1:])
   feature_dim = len(model_input_raw.get_shape()) - 1
 
   model_input = tf.nn.l2_normalize(model_input_raw, feature_dim)
@@ -308,7 +318,12 @@ def build_graph(reader,
 
           # Incorporate the L2 weight penalties etc.
           final_loss = regularization_penalty * reg_loss + label_loss
+
+          agg_method = None if not FLAGS.use_grad_agg else \
+                tf.AggregationMethod.EXPERIMENTAL_ACCUMULATE_N
+
           gradients = optimizer.compute_gradients(final_loss,
+              aggregation_method=agg_method,
               colocate_gradients_with_ops=False)
           tower_gradients.append(gradients)
   label_loss = tf.reduce_mean(tf.stack(tower_label_losses))
@@ -644,7 +659,6 @@ def main(unused_argv):
   if not cluster or task.type == "master" or task.type == "worker":
     model = find_class_by_name(FLAGS.model,
         [frame_level_models, video_level_models])()
-
     reader = get_reader()
 
     model_exporter = export_model.ModelExporter(

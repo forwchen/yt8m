@@ -16,6 +16,7 @@
 
 import os
 import time
+import pdb
 
 import numpy
 import tensorflow as tf
@@ -35,12 +36,9 @@ FLAGS = flags.FLAGS
 if __name__ == '__main__':
   flags.DEFINE_string("train_dir", "/tmp/yt8m_model/",
                       "The directory to load the model files from.")
-  flags.DEFINE_string("checkpoint_file", "",
-                      "If provided, this specific checkpoint file will be "
-                      "used for inference. Otherwise, the latest checkpoint "
-                      "from the train_dir' argument will be used instead.")
   flags.DEFINE_string("output_file", "",
                       "The file to save the predictions to.")
+  flags.DEFINE_string("input_list", "", "Testing file list")
   flags.DEFINE_string(
       "input_data_pattern", "",
       "File glob defining the evaluation dataset in tensorflow.SequenceExample "
@@ -50,8 +48,8 @@ if __name__ == '__main__':
   # Model flags.
   flags.DEFINE_bool(
       "frame_features", False,
-      "If set, then --input_data_pattern must be frame-level features. "
-      "Otherwise, --input_data_pattern must be aggregated video-level "
+      "If set, then --eval_data_pattern must be frame-level features. "
+      "Otherwise, --eval_data_pattern must be aggregated video-level "
       "features. The model must also be set appropriately (i.e. to read 3D "
       "batches VS 4D batches.")
   flags.DEFINE_integer(
@@ -61,9 +59,10 @@ if __name__ == '__main__':
                       "to use for training.")
   flags.DEFINE_string("feature_sizes", "1024", "Length of the feature vectors.")
 
+  flags.DEFINE_string("model", "", "Name of model")
 
   # Other flags.
-  flags.DEFINE_integer("num_readers", 1,
+  flags.DEFINE_integer("num_readers", 8,
                        "How many threads to use for reading input files.")
   flags.DEFINE_integer("top_k", 20,
                        "How many predictions to output per video.")
@@ -97,7 +96,10 @@ def get_input_data_tensors(reader, data_pattern, batch_size, num_readers=1):
     IOError: If no files matching the given pattern were found.
   """
   with tf.name_scope("input"):
-    files = gfile.Glob(data_pattern)
+    #files = gfile.Glob(data_pattern)
+    files_ = open(FLAGS.input_list, 'r').readlines()
+    files = [x.replace('\n','').replace('\r', '') for x in files_]
+
     if not files:
       raise IOError("Unable to find input files. data_pattern='" +
                     data_pattern + "'")
@@ -114,15 +116,10 @@ def get_input_data_tensors(reader, data_pattern, batch_size, num_readers=1):
                             enqueue_many=True))
     return video_id_batch, video_batch, num_frames_batch
 
-def inference(reader, checkpoint_file, train_dir, data_pattern, out_file_location, batch_size, top_k):
-  with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess, gfile.Open(out_file_location, "w+") as out_file:
+def inference(reader, train_dir, data_pattern, out_file_location, batch_size, top_k):
+  with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
     video_id_batch, video_batch, num_frames_batch = get_input_data_tensors(reader, data_pattern, batch_size)
-    if checkpoint_file:
-      if not gfile.Exists(checkpoint_file + ".meta"):
-        logging.fatal("Unable to find checkpoint file at provided location '%s'" % checkpoint_file)
-      latest_checkpoint = checkpoint_file
-    else:
-      latest_checkpoint = tf.train.latest_checkpoint(train_dir)
+    latest_checkpoint = tf.train.latest_checkpoint(train_dir)
     if latest_checkpoint is None:
       raise Exception("unable to find a checkpoint at location: %s" % train_dir)
     else:
@@ -134,6 +131,10 @@ def inference(reader, checkpoint_file, train_dir, data_pattern, out_file_locatio
     input_tensor = tf.get_collection("input_batch_raw")[0]
     num_frames_tensor = tf.get_collection("num_frames")[0]
     predictions_tensor = tf.get_collection("predictions")[0]
+
+    out_file_location ='-'.join(['predictions',FLAGS.model,latest_checkpoint.split('/')[-1].split('-')[-1]])+'.csv'
+    logging.info("output to "+out_file_location)
+    out_file = gfile.Open(out_file_location, "w+")
 
     # Workaround for num_epochs issue.
     def set_up_init_ops(variables):
@@ -198,7 +199,7 @@ def main(unused_argv):
     raise ValueError("'input_data_pattern' was not specified. "
       "Unable to continue with inference.")
 
-  inference(reader, FLAGS.checkpoint_file, FLAGS.train_dir, FLAGS.input_data_pattern,
+  inference(reader, FLAGS.train_dir, FLAGS.input_data_pattern,
     FLAGS.output_file, FLAGS.batch_size, FLAGS.top_k)
 
 
