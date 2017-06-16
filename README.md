@@ -119,8 +119,8 @@ The software dependencies are:
 ### 1. Train the models
 As shown in the following tables, to obtain the results, you first need to run the training scripts in corresponding folders to get predictions from all the model checkpoints.
 
-Table 1. Models from team Shaoxiang Chen. In branch sxc.
-If not otherwise stated, the models here are trained on both training and validation data.
+Table 1. Models from team Shaoxiang Chen. In branch `sxc`.
+If not otherwise stated, the models here are trained on both training and validation data. The training scripts can be found in `train_scripts` directory of branch `sxc`.
 
 | Model| Prediction at checkpoints| Intra-model fusion weights |Inter-model fusion weights
 | ------ | ------ | ------ | ------ |
@@ -135,9 +135,9 @@ If not otherwise stated, the models here are trained on both training and valida
 |Bidirectional GRU| 53k, 45k, 35k| 0.5, 0.3, 0.2 |0.25|
 |RNN with residual connection | 75k, 70k, 62k, 56k | 0.4, 0.3, 0.2, 0.1 | n/a |
 
-Table 2. Models from team Xi Wang. In branch xiw, diff(with Feature Transformation), filter(with Label Filter).
-If not otherwise stated, the models here are trained only on training data. For detailed settings, please refer to
-the corresponding branches.
+Table 2. Models from team Xi Wang. In branch `xiw`, `diff`(with Feature Transformation), `filter`(with Label Filter).
+If not otherwise stated, the models here are trained only on training data. For detailed training settings, please refer to
+the corresponding branches' README file.
 
 |Model |Prediction at checkpoints| Fusion weights|
 | ------ | ------ | ------ | 
@@ -153,8 +153,8 @@ the corresponding branches.
 |MoE| 23k| 0.7|
 |DBoF| 17k| 0.5|
 
-Table 3. Models from team Yongyi Tang. In branch yyt.
-The models are trained on both training and validation data except validate[0-2]*.tfrecord.
+Table 3. Models from team Yongyi Tang. In branch `yyt`.
+The models are trained on both training and validation data except validate[0-2]*.tfrecord. The training scripts can be found in the `train_scripts` directory of branch `yyt`.
 
 |Model | Prediction at checkpoints|
 | ------ | ------ |
