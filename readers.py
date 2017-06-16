@@ -16,6 +16,7 @@
 
 import tensorflow as tf
 import utils
+import numpy as np
 
 from tensorflow import logging
 def resize_axis(tensor, axis, new_size, fill_value=0):
@@ -90,6 +91,7 @@ class YT8MAggregatedFeatureReader(BaseReader):
     self.num_classes = num_classes
     self.feature_sizes = feature_sizes
     self.feature_names = feature_names
+    self.filter = np.load('filter-2534.npy')
 
   def prepare_reader(self, filename_queue, batch_size=1024):
     """Creates a single reader thread for pre-aggregated YouTube 8M Examples.
@@ -123,6 +125,8 @@ class YT8MAggregatedFeatureReader(BaseReader):
     features = tf.parse_example(serialized_examples, features=feature_map)
     labels = tf.sparse_to_indicator(features["labels"], self.num_classes)
     labels.set_shape([None, self.num_classes])
+    filter = tf.constant(self.filter, dtype=tf.bool)
+    labels = tf.logical_and(labels, filter)
     concatenated_features = tf.concat([
         features[feature_name] for feature_name in self.feature_names], 1)
 
@@ -208,7 +212,7 @@ class YT8MFrameFeatureReader(BaseReader):
     _, serialized_example = reader.read(filename_queue)
 
     return self.prepare_serialized_examples(serialized_example,
-        max_quantized_value, min_quantized_value)
+      max_quantized_value, min_quantized_value)
 
   def prepare_serialized_examples(self, serialized_example,
       max_quantized_value=2, min_quantized_value=-2):
